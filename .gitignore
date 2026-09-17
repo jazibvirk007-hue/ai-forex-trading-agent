@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.env
+
+# Local research data
+data/raw/
+data/processed/
+data/reports/
+
+# Local trained models and reports
+artifacts/
+*.pkl
+*.joblib
