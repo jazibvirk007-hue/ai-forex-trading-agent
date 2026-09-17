@@ -20,10 +20,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-ml = ["lightgbm>=4.5,<5", "torch>=2.4,<3"]
+ml = ["lightgbm>=4.5,<5"]
+deep = ["torch>=2.4,<3"]
 db = ["SQLAlchemy>=2.0,<3", "psycopg[binary]>=3.2,<4"]
 dev = ["pytest>=8,<9", "pytest-cov>=5,<6", "ruff>=0.6,<1", "mypy>=1.11,<2"]
-all = ["ai-forex-trading-agent[ml,db,dev]"]
+all = ["ai-forex-trading-agent[ml,deep,db,dev]"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
