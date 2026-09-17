@@ -26,6 +26,6 @@ def test_position_limit_blocks_trade():
 
 def test_drawdown_halts_trading():
     engine = RiskEngine()
-    decision = engine.check(AccountState(8900, 10000, 10000, 10000, 0, 0), 0.001, 1.0)
+    decision = engine.check(AccountState(8900, 9300, 9300, 10000, 0, 0), 0.001, 1.0)
     assert not decision.approved
     assert "drawdown" in decision.reason
