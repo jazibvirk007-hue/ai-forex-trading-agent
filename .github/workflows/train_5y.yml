@@ -1,0 +1,68 @@
+name: Train EURUSD 5Y Model
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/download_5y_eurusd_v2.py"
+      - "scripts/train_fx.py"
+      - "app/**"
+      - ".github/workflows/train_5y.yml"
+
+concurrency:
+  group: eurusd-5y-training
+  cancel-in-progress: false
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install ML stack
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[ml]"
+
+      - name: Download 5 years of EURUSD M5 data
+        run: |
+          python scripts/download_5y_eurusd_v2.py \
+            --from-date 2021-09-17 \
+            --to-date 2026-09-17
+
+      - name: Validate dataset
+        run: |
+          python - <<'PY'
+          import pandas as pd
+          p = "data/raw/EURUSD_M5_5Y_raw.csv"
+          df = pd.read_csv(p, parse_dates=["timestamp"])
+          assert len(df) >= 500_000, f"Too few rows: {len(df):,}"
+          assert df.timestamp.is_monotonic_increasing
+          assert not df.timestamp.duplicated().any()
+          assert (df.high >= df[["open", "close"]].max(axis=1)).all()
+          assert (df.low <= df[["open", "close"]].min(axis=1)).all()
+          print(f"Validated {len(df):,} rows: {df.timestamp.min()} -> {df.timestamp.max()}")
+          PY
+
+      - name: Train model with walk-forward and untouched holdout
+        run: python scripts/train_fx.py
+
+      - name: Upload training artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: eurusd-m5-5y-model
+          path: |
+            artifacts/eurusd_m5_5y/model.pkl
+            artifacts/eurusd_m5_5y/training_report.json
+            artifacts/eurusd_m5_5y/feature_config.json
+          retention-days: 14
