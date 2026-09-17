@@ -34,8 +34,12 @@ def test_labels_do_not_fill_incomplete_future_window():
 def test_walk_forward_is_chronological():
     frame = pd.DataFrame({"x": range(10)})
     splits = list(walk_forward_splits(frame, 4, 2, 2, step=2))
-    assert len(splits) == 3
+    assert len(splits) == 2
     train, validation, test = splits[0]
     assert list(train.x) == [0, 1, 2, 3]
     assert list(validation.x) == [4, 5]
     assert list(test.x) == [6, 7]
+    train2, validation2, test2 = splits[1]
+    assert list(train2.x) == [2, 3, 4, 5]
+    assert list(validation2.x) == [6, 7]
+    assert list(test2.x) == [8, 9]
