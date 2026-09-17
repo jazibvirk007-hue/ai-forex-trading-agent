@@ -25,9 +25,9 @@ def test_short_hits_target_at_ask():
     entry_quote = q("EUR_USD", 1.0999, 1.1001)
     order = OrderRequest("EUR_USD", Side.SELL, 1000, 1.0999, 1.1020, 1.0960)
     engine.open(order, entry_quote)
-    closed = engine.update(q("EUR_USD", 1.0959, 1.0961))
+    closed = engine.update(q("EUR_USD", 1.0959, 1.0960))
     assert closed[0].reason == "take_profit"
-    assert closed[0].exit_price == 1.0961
+    assert closed[0].exit_price == 1.0960
 
 
 def test_account_applies_realized_pnl():
