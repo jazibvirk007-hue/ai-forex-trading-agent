@@ -1,0 +1,15 @@
+services:
+  trader:
+    build: .
+    environment:
+      APP_ENV: development
+      BROKER_MODE: paper
+      ALLOW_LIVE_TRADING: "false"
+      DATABASE_URL: sqlite:///./trading.db
+    ports:
+      - "8000:8000"
+    volumes:
+      - trader_data:/app
+
+volumes:
+  trader_data:
