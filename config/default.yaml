@@ -1,0 +1,30 @@
+app:
+  environment: development
+  log_level: INFO
+  allow_live_trading: false
+
+risk:
+  risk_per_trade: 0.005
+  max_daily_loss: 0.02
+  max_weekly_loss: 0.05
+  max_drawdown: 0.10
+  max_open_positions: 3
+  max_correlated_positions: 2
+  minimum_reward_risk: 1.5
+
+execution:
+  mode: paper
+  max_slippage_pips: 1.5
+  commission_per_unit: 0.0
+  default_spread_pips: 1.0
+
+strategy:
+  min_confidence: 0.60
+  min_edge_after_costs: 0.0
+  time_stop_bars: 20
+  atr_stop_multiple: 1.5
+  atr_target_multiple: 2.25
+
+market:
+  timeframes: [M1, M5, M15, H1, H4, D1]
+  pairs: [EUR_USD, GBP_USD, USD_JPY]
