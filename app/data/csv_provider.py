@@ -7,13 +7,18 @@ REQUIRED_COLUMNS = ("timestamp", "open", "high", "low", "close", "volume")
 
 
 class CSVDataProvider:
-    """Load normalized OHLCV data from CSV for reproducible research."""
+    """Load and validate normalized OHLCV data from CSV for reproducible research."""
 
     def __init__(self, path: str | Path) -> None:
         self.path = Path(path)
 
     def load(self) -> pd.DataFrame:
         frame = pd.read_csv(self.path)
+
+        # Public FX datasets commonly call the bar-open timestamp `datetime`.
+        if "timestamp" not in frame.columns and "datetime" in frame.columns:
+            frame = frame.rename(columns={"datetime": "timestamp"})
+
         missing = [column for column in REQUIRED_COLUMNS if column not in frame.columns]
         if missing:
             raise ValueError(f"missing required columns: {missing}")
