@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 
 from .backtest_engine import BacktestConfig, CostModel, EventDrivenBacktester
-from .data.csv_provider import load_ohlcv_csv
+from .data.csv_provider import CSVDataProvider
 from .features.indicators import add_indicators
 
 
@@ -22,7 +22,7 @@ class ResearchReport:
 
 def prepare_csv(path: str | Path) -> pd.DataFrame:
     """Load OHLCV data and add causal indicators for research."""
-    frame = load_ohlcv_csv(path)
+    frame = CSVDataProvider(path).load()
     frame = add_indicators(frame)
     frame["atr"] = frame["atr_14"]
     return frame
@@ -41,4 +41,11 @@ def run_baseline(path: str | Path) -> ResearchReport:
     curve, trades = EventDrivenBacktester(config).run(frame)
     final_equity = float(curve["equity"].iloc[-1]) if not curve.empty else config.initial_equity
     total_return = final_equity / config.initial_equity - 1.0
-    return ResearchReport(len(frame), frame["timestamp"].min(), frame["timestamp"].max(), len(trades), final_equity, total_return)
+    return ResearchReport(
+        len(frame),
+        frame["timestamp"].min(),
+        frame["timestamp"].max(),
+        len(trades),
+        final_equity,
+        total_return,
+    )
