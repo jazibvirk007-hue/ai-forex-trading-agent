@@ -27,9 +27,6 @@ def main() -> None:
     print(" ".join(command), flush=True)
     subprocess.run(command, cwd=output_dir, check=True)
 
-    # The downloader's documented output is relative to its working directory.
-    # Search recursively as a defensive measure because output layout can vary
-    # between dukascopy-node versions.
     candidates = sorted(
         path
         for path in output_dir.rglob("*.csv")
@@ -45,6 +42,13 @@ def main() -> None:
     frame = pd.concat(frames, ignore_index=True)
     if "datetime" in frame.columns and "timestamp" not in frame.columns:
         frame = frame.rename(columns={"datetime": "timestamp"})
+
+    # Dukascopy FX rate downloads do not provide exchange volume by default.
+    # The normalized OHLCV schema requires a non-negative volume column, but
+    # none of the current research features use volume, so use an explicit
+    # zero placeholder rather than fabricating tick/exchange volume.
+    if "volume" not in frame.columns:
+        frame["volume"] = 0.0
 
     required = ["timestamp", "open", "high", "low", "close", "volume"]
     missing = [column for column in required if column not in frame.columns]
