@@ -27,9 +27,12 @@ def main() -> None:
     print(" ".join(command), flush=True)
     subprocess.run(command, cwd=output_dir, check=True)
 
-    candidates = sorted(output_dir.glob("eurusd-*-m5.csv"))
+    download_dir = output_dir / "download"
+    candidates = sorted(download_dir.glob("eurusd-*-m5.csv"))
     if not candidates:
-        raise FileNotFoundError("No Dukascopy EURUSD M5 CSV files were produced")
+        raise FileNotFoundError(
+            f"No Dukascopy EURUSD M5 CSV files were produced under {download_dir}"
+        )
 
     frames = [pd.read_csv(path) for path in candidates]
     frame = pd.concat(frames, ignore_index=True)
