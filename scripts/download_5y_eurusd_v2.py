@@ -16,7 +16,6 @@ def main() -> None:
     parser.add_argument("--batch-pause-ms", type=int, default=1000)
     args = parser.parse_args()
 
-    # Resolve before changing cwd so all subsequent paths refer to the repository.
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -28,15 +27,18 @@ def main() -> None:
     print(" ".join(command), flush=True)
     subprocess.run(command, cwd=output_dir, check=True)
 
-    # dukascopy-node writes its CSV beneath the working directory.
-    download_dir = output_dir / "download"
-    candidates = sorted(download_dir.glob("eurusd-*-m5.csv"))
-    if not candidates:
-        # Defensive fallback for alternate downloader output layouts.
-        candidates = sorted(output_dir.rglob("eurusd-*-m5.csv"))
+    # The downloader's documented output is relative to its working directory.
+    # Search recursively as a defensive measure because output layout can vary
+    # between dukascopy-node versions.
+    candidates = sorted(
+        path
+        for path in output_dir.rglob("*.csv")
+        if path.name.lower().startswith("eurusd-") and "-m5" in path.name.lower()
+    )
     if not candidates:
         raise FileNotFoundError(
-            f"No Dukascopy EURUSD M5 CSV files were produced under {output_dir}"
+            f"No EURUSD M5 CSV files were produced under {output_dir}. "
+            f"CSV files found: {[str(p.relative_to(output_dir)) for p in output_dir.rglob('*.csv')]}"
         )
 
     frames = [pd.read_csv(path) for path in candidates]
