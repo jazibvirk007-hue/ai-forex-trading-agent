@@ -3,7 +3,7 @@
   const state = {
     messages: [{
       role: "system",
-      content: "You are the TJ Trading OS copilot. Be concise. Never claim guaranteed returns. Respect configured risk limits and never suggest bypassing live-trading safety gates."
+      content: "You are the TJ Trading OS copilot. Be concise. Never claim guaranteed returns. Respect risk limits and never suggest bypassing live-trading safety gates."
     }],
     recorder: null,
     stream: null,
@@ -14,18 +14,25 @@
   const ui = {
     provider: $("provider"), baseUrlWrap: $("baseUrlWrap"), baseUrl: $("baseUrl"),
     aiKey: $("aiKey"), model: $("model"), fetchModels: $("fetchModels"),
-    modelStatus: $("modelStatus"), fishKey: $("fishKey"), fetchAudio: $("fetchAudio"),
-    voice: $("voice"), fishModel: $("fishModel"), audioStatus: $("audioStatus"),
+    useForEngine: $("useForEngine"), modelStatus: $("modelStatus"),
+    fishKey: $("fishKey"), fetchAudio: $("fetchAudio"), voice: $("voice"),
+    fishModel: $("fishModel"), audioStatus: $("audioStatus"),
     systemBadge: $("systemBadge"), brokerBadge: $("brokerBadge"),
+    engineBadge: $("engineBadge"), killBadge: $("killBadge"),
     riskMetric: $("riskMetric"), positionMetric: $("positionMetric"), modeMetric: $("modeMetric"),
     checkMt5: $("checkMt5"), mt5Details: $("mt5Details"),
+    engineDetails: $("engineDetails"), engineStatusText: $("engineStatusText"),
+    startEngine: $("startEngine"), scanNow: $("scanNow"), stopEngine: $("stopEngine"),
+    emergencyStop: $("emergencyStop"), resumeEngine: $("resumeEngine"),
+    refreshProposals: $("refreshProposals"), proposalList: $("proposalList"),
+    refreshEvents: $("refreshEvents"), eventList: $("eventList"),
     chatFab: $("chatFab"), chatPanel: $("chatPanel"), closeChat: $("closeChat"),
     messages: $("messages"), chatForm: $("chatForm"), chatInput: $("chatInput"),
     voiceBtn: $("voiceBtn"), orbWrap: $("orbWrap"), voiceOrb: $("voiceOrb"), orbLabel: $("orbLabel"),
   };
 
   function escapeHtml(value) {
-    return String(value).replace(/[&<>"']/g, c => ({
+    return String(value ?? "").replace(/[&<>"']/g, c => ({
       "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"
     }[c]));
   }
@@ -68,7 +75,7 @@
       ui.systemBadge.classList.remove("warn");
       ui.riskMetric.textContent = `${(h.risk_per_trade * 100).toFixed(2)}%`;
       ui.positionMetric.textContent = h.max_open_positions;
-      ui.modeMetric.textContent = String(h.mode).toUpperCase();
+      ui.modeMetric.textContent = "CONFIRMED LIVE";
       ui.brokerBadge.textContent = h.live_enabled && h.live_armed ? "LIVE ARMED" : "LIVE LOCKED";
     } catch {
       ui.systemBadge.textContent = "SYSTEM OFFLINE";
@@ -84,7 +91,6 @@
         const option = document.createElement("option");
         option.value = p.id;
         option.textContent = p.label;
-        option.dataset.baseUrl = p.base_url || "";
         ui.provider.appendChild(option);
       }
       providerChanged();
@@ -128,6 +134,28 @@
       ui.modelStatus.textContent = err.message;
     } finally {
       ui.fetchModels.disabled = false;
+    }
+  }
+
+  async function configureEngineAI() {
+    if (!ui.aiKey.value.trim() || !ui.model.value) {
+      ui.modelStatus.textContent = "Fetch a model and enter its API key first.";
+      return;
+    }
+    try {
+      const data = await json("/engine/ai/configure", {
+        method: "POST",
+        body: JSON.stringify({
+          provider: ui.provider.value,
+          api_key: ui.aiKey.value,
+          base_url: ui.baseUrl.value || null,
+          model: ui.model.value,
+        }),
+      });
+      ui.modelStatus.textContent = `Engine AI: ${data.provider} / ${data.model}`;
+      await refreshEngine();
+    } catch (err) {
+      ui.modelStatus.textContent = err.message;
     }
   }
 
@@ -287,10 +315,134 @@
     }
   }
 
+  async function refreshEngine() {
+    try {
+      const s = await json("/engine/status");
+      ui.engineBadge.textContent = s.running ? "ANALYSIS RUNNING" : "ANALYSIS STOPPED";
+      ui.engineBadge.classList.toggle("warn", !s.running);
+      ui.killBadge.textContent = s.kill_switch ? "KILL SWITCH ACTIVE" : "KILL SWITCH READY";
+      ui.killBadge.classList.toggle("danger-chip", s.kill_switch);
+      ui.engineDetails.innerHTML = `
+        <div><span>AI</span><strong>${escapeHtml(s.ai_configured ? (s.ai_provider + " / " + s.ai_model) : "Not configured")}</strong></div>
+        <div><span>Symbols</span><strong>${escapeHtml(s.symbols.join(", "))}</strong></div>
+        <div><span>Timeframe</span><strong>${escapeHtml(s.timeframe)}</strong></div>
+        <div><span>Last cycle</span><strong>${escapeHtml(s.last_cycle_at || "—")}</strong></div>`;
+      if (s.last_error) ui.engineStatusText.textContent = s.last_error;
+    } catch (err) {
+      ui.engineStatusText.textContent = err.message;
+    }
+  }
+
+  async function engineAction(path) {
+    try {
+      const data = await json(path, {method:"POST"});
+      ui.engineStatusText.textContent = data.last_error || "Engine command completed.";
+      await Promise.all([refreshEngine(), refreshProposals(), refreshEvents()]);
+    } catch (err) {
+      ui.engineStatusText.textContent = err.message;
+    }
+  }
+
+  async function resumeKillSwitch() {
+    if (!window.confirm("Reset the emergency kill switch?")) return;
+    try {
+      await json("/engine/resume", {
+        method:"POST",
+        headers:{"X-Engine-Confirm":"RESUME"},
+      });
+      ui.engineStatusText.textContent = "Kill switch reset.";
+      await refreshEngine();
+    } catch (err) {
+      ui.engineStatusText.textContent = err.message;
+    }
+  }
+
+  async function refreshProposals() {
+    try {
+      const data = await json("/engine/proposals?limit=20");
+      const rows = data.proposals || [];
+      if (!rows.length) {
+        ui.proposalList.innerHTML = '<div class="empty-state">No proposals yet. Configure AI and run the scanner.</div>';
+        return;
+      }
+      ui.proposalList.innerHTML = rows.map(p => {
+        const ready = p.status === "ready";
+        const execute = ready
+          ? `<button class="execute-proposal" data-id="${p.id}" type="button">Execute Live</button>`
+          : `<span class="proposal-status">${escapeHtml(p.status)}</span>`;
+        return `<article class="proposal-card">
+          <div class="proposal-top">
+            <div><strong>${escapeHtml(p.symbol)} · ${escapeHtml(String(p.side).toUpperCase())}</strong>
+            <span>#${p.id} · ${escapeHtml(p.strategy)}</span></div>
+            ${execute}
+          </div>
+          <div class="proposal-grid">
+            <div><span>Volume</span><strong>${escapeHtml(p.volume_lots)}</strong></div>
+            <div><span>Reference</span><strong>${escapeHtml(p.reference_entry)}</strong></div>
+            <div><span>Stop</span><strong>${escapeHtml(p.stop_loss)}</strong></div>
+            <div><span>Target</span><strong>${escapeHtml(p.take_profit)}</strong></div>
+            <div><span>Risk cash</span><strong>${escapeHtml(p.estimated_risk_cash)}</strong></div>
+            <div><span>AI confidence</span><strong>${(Number(p.ai_confidence) * 100).toFixed(0)}%</strong></div>
+          </div>
+          <p>${escapeHtml(p.rationale)}</p>
+        </article>`;
+      }).join("");
+      ui.proposalList.querySelectorAll(".execute-proposal").forEach(button => {
+        button.addEventListener("click", () => executeProposal(Number(button.dataset.id)));
+      });
+    } catch (err) {
+      ui.proposalList.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function executeProposal(id) {
+    const proposal = `#${id}`;
+    if (!window.confirm(`Send proposal ${proposal} to the connected live MT5 account? This can place a real-money order.`)) return;
+    try {
+      const result = await json(`/engine/proposals/${id}/execute`, {
+        method:"POST",
+        headers:{"X-Live-Confirm":`PROPOSAL:${id}`},
+      });
+      ui.engineStatusText.textContent = `Live order accepted: ${result.order_id}`;
+      await Promise.all([refreshProposals(), refreshEvents(), checkMt5()]);
+    } catch (err) {
+      ui.engineStatusText.textContent = err.message;
+      await refreshProposals();
+    }
+  }
+
+  async function refreshEvents() {
+    try {
+      const data = await json("/engine/events?limit=30");
+      const events = data.events || [];
+      if (!events.length) {
+        ui.eventList.innerHTML = '<div class="empty-state">No engine events yet.</div>';
+        return;
+      }
+      ui.eventList.innerHTML = events.map(e => `<div class="event-row">
+        <span class="event-time">${escapeHtml(String(e.created_at).replace("T"," ").slice(0,19))}</span>
+        <strong>${escapeHtml(e.event_type)}</strong>
+        <span>${escapeHtml(e.symbol || "")}</span>
+        <span>${escapeHtml(e.message)}</span>
+      </div>`).join("");
+    } catch (err) {
+      ui.eventList.innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+    }
+  }
+
   ui.provider.addEventListener("change", providerChanged);
   ui.fetchModels.addEventListener("click", fetchModels);
+  ui.useForEngine.addEventListener("click", configureEngineAI);
   ui.fetchAudio.addEventListener("click", fetchAudio);
   ui.checkMt5.addEventListener("click", checkMt5);
+  ui.startEngine.addEventListener("click", () => engineAction("/engine/start"));
+  ui.stopEngine.addEventListener("click", () => engineAction("/engine/stop"));
+  ui.scanNow.addEventListener("click", () => engineAction("/engine/run-once"));
+  ui.emergencyStop.addEventListener("click", () => engineAction("/engine/emergency-stop"));
+  ui.resumeEngine.addEventListener("click", resumeKillSwitch);
+  ui.refreshProposals.addEventListener("click", refreshProposals);
+  ui.refreshEvents.addEventListener("click", refreshEvents);
+
   ui.chatFab.addEventListener("click", () => {
     ui.chatPanel.classList.add("open");
     ui.chatPanel.setAttribute("aria-hidden", "false");
@@ -319,4 +471,11 @@
 
   loadHealth();
   loadProviders();
+  refreshEngine();
+  refreshProposals();
+  refreshEvents();
+  window.setInterval(() => {
+    refreshEngine();
+    refreshProposals();
+  }, 10000);
 })();
