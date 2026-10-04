@@ -16,21 +16,22 @@
       <div class="status-row">
         <span id="systemBadge" class="status-dot">SYSTEM</span>
         <span id="brokerBadge" class="status-dot warn">MT5</span>
+        <span id="engineBadge" class="status-dot warn">ANALYSIS STOPPED</span>
       </div>
     </header>
 
     <main class="grid">
       <section class="hero panel">
         <div class="eyebrow">LIVE INTELLIGENCE</div>
-        <h2>Micro-capital execution with AI-assisted research.</h2>
+        <h2>Real-time analysis for micro-capital live trading.</h2>
         <p class="muted">
-          Live-first architecture. Orders are gated by broker limits, stop-loss cash risk,
-          one-position micro mode, and an explicit execution arm.
+          MT5 market data, parallel AI debate, deterministic risk sizing, durable journal,
+          and per-proposal confirmation before a real order is sent.
         </p>
         <div class="metrics">
           <div><span>Risk / trade</span><strong id="riskMetric">0.50%</strong></div>
           <div><span>Max positions</span><strong id="positionMetric">1</strong></div>
-          <div><span>Mode</span><strong id="modeMetric">LIVE</strong></div>
+          <div><span>Execution</span><strong id="modeMetric">CONFIRMED LIVE</strong></div>
         </div>
       </section>
 
@@ -58,12 +59,13 @@
           <input id="baseUrl" type="url" placeholder="https://api.example.com">
         </label>
         <label>API Key
-          <input id="aiKey" type="password" autocomplete="off" placeholder="Stored in memory only">
+          <input id="aiKey" type="password" autocomplete="off" placeholder="Kept in process memory">
         </label>
         <div class="inline">
           <button id="fetchModels" type="button">Fetch Models</button>
           <select id="model"><option value="">Select a model</option></select>
         </div>
+        <button id="useForEngine" class="wide-btn secondary" type="button">Use Selected Model for Engine</button>
         <p id="modelStatus" class="hint">Choose a provider and fetch its live model list.</p>
       </section>
 
@@ -90,6 +92,58 @@
       <section class="panel wide">
         <div class="section-head">
           <div>
+            <div class="eyebrow">LIVE ANALYSIS ENGINE</div>
+            <h3>Continuous Market Scanner</h3>
+          </div>
+          <span id="killBadge" class="chip">KILL SWITCH READY</span>
+        </div>
+        <div id="engineDetails" class="engine-summary">
+          <div><span>AI</span><strong>Not configured</strong></div>
+          <div><span>Symbols</span><strong>Loading…</strong></div>
+          <div><span>Timeframe</span><strong>—</strong></div>
+          <div><span>Last cycle</span><strong>—</strong></div>
+        </div>
+        <div class="action-row">
+          <button id="startEngine" type="button">Start Analysis</button>
+          <button id="scanNow" class="secondary" type="button">Scan Now</button>
+          <button id="stopEngine" class="secondary" type="button">Stop</button>
+          <button id="emergencyStop" class="danger" type="button">Emergency Stop</button>
+          <button id="resumeEngine" class="secondary" type="button">Reset Kill Switch</button>
+        </div>
+        <p id="engineStatusText" class="hint">
+          The scanner can run continuously. It creates live proposals but cannot submit them without your proposal-specific confirmation.
+        </p>
+      </section>
+
+      <section class="panel wide">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">LIVE PROPOSALS</div>
+            <h3>Ready for Confirmation</h3>
+          </div>
+          <button id="refreshProposals" class="secondary" type="button">Refresh</button>
+        </div>
+        <div id="proposalList" class="proposal-list">
+          <div class="empty-state">No proposals yet. Configure AI and run the scanner.</div>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <div class="section-head">
+          <div>
+            <div class="eyebrow">ENGINE ACTIVITY</div>
+            <h3>Live Decision Log</h3>
+          </div>
+          <button id="refreshEvents" class="secondary" type="button">Refresh</button>
+        </div>
+        <div id="eventList" class="event-list">
+          <div class="empty-state">No engine events yet.</div>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <div class="section-head">
+          <div>
             <div class="eyebrow">SAFETY CORE</div>
             <h3>Micro-capital rules</h3>
           </div>
@@ -99,9 +153,12 @@
           <div>Percentage-based risk sizing</div>
           <div>Hard stop required</div>
           <div>Broker minimum volume enforced</div>
-          <div>Order check before send</div>
+          <div>MT5 order check before send</div>
           <div>One concurrent position by default</div>
-          <div>Explicit live-arm gate</div>
+          <div>Proposal-specific live confirmation</div>
+          <div>Persistent daily/weekly risk anchors</div>
+          <div>Portfolio correlation guard</div>
+          <div>Post-trade journal + reflection</div>
         </div>
       </section>
     </main>
