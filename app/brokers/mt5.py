@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_FLOOR
 from typing import Any
 
@@ -13,11 +13,7 @@ class MT5Unavailable(RuntimeError):
 
 
 class MT5Broker(Broker):
-    """Live MetaTrader 5 adapter.
-
-    The adapter imports MetaTrader5 lazily because the official package is
-    Windows-only. OrderRequest.units is interpreted as MT5 volume in lots.
-    """
+    """Live MetaTrader 5 adapter with market-data and risk-sizing helpers."""
 
     def __init__(
         self,
@@ -43,8 +39,7 @@ class MT5Broker(Broker):
             import MetaTrader5 as mt5  # type: ignore
         except ImportError as exc:
             raise MT5Unavailable(
-                "MetaTrader5 package is not installed. On Windows run: "
-                "pip install -e '.[live]'"
+                "MetaTrader5 is not installed. On Windows run: pip install -e '.[live]'"
             ) from exc
         self._mt5 = mt5
         return mt5
@@ -110,13 +105,23 @@ class MT5Broker(Broker):
             ask=float(tick.ask),
         )
 
-    def volume_constraints(self, symbol: str) -> dict[str, float]:
+    def symbol_details(self, symbol: str) -> dict[str, float]:
         self.connect()
         info = self._ensure_symbol(symbol)
         return {
-            "min": float(info.volume_min),
-            "max": float(info.volume_max),
-            "step": float(info.volume_step),
+            "point": float(info.point),
+            "digits": float(info.digits),
+            "volume_min": float(info.volume_min),
+            "volume_max": float(info.volume_max),
+            "volume_step": float(info.volume_step),
+        }
+
+    def volume_constraints(self, symbol: str) -> dict[str, float]:
+        details = self.symbol_details(symbol)
+        return {
+            "min": details["volume_min"],
+            "max": details["volume_max"],
+            "step": details["volume_step"],
         }
 
     def validate_volume(self, symbol: str, lots: float) -> None:
@@ -128,13 +133,20 @@ class MT5Broker(Broker):
         step = Decimal(str(c["step"]))
         minimum = Decimal(str(c["min"]))
         value = Decimal(str(lots))
-        steps = ((value - minimum) / step).quantize(Decimal("1"), rounding=ROUND_FLOOR)
+        steps = ((value - minimum) / step).quantize(
+            Decimal("1"), rounding=ROUND_FLOOR
+        )
         normalized = minimum + steps * step
         if abs(float(normalized) - lots) > 1e-9:
             raise ValueError(f"volume must follow broker step {c['step']} lots")
 
     def loss_at_stop(
-        self, symbol: str, side: Side, lots: float, entry: float, stop: float
+        self,
+        symbol: str,
+        side: Side,
+        lots: float,
+        entry: float,
+        stop: float,
     ) -> float:
         self.connect()
         self.validate_volume(symbol, lots)
@@ -144,6 +156,144 @@ class MT5Broker(Broker):
         if result is None:
             raise ValueError(f"unable to calculate stop loss: {mt5.last_error()}")
         return abs(float(result))
+
+    def size_for_risk(
+        self,
+        *,
+        symbol: str,
+        side: Side,
+        entry: float,
+        stop: float,
+        max_risk_cash: float,
+    ) -> float | None:
+        if max_risk_cash <= 0:
+            return None
+        self.connect()
+        mt5 = self._module()
+        constraints = self.volume_constraints(symbol)
+        order_type = mt5.ORDER_TYPE_BUY if side is Side.BUY else mt5.ORDER_TYPE_SELL
+        loss_one = mt5.order_calc_profit(order_type, symbol, 1.0, entry, stop)
+        if loss_one is None or abs(float(loss_one)) <= 0:
+            raise ValueError(f"unable to size risk: {mt5.last_error()}")
+        raw = max_risk_cash / abs(float(loss_one))
+        if raw < constraints["min"]:
+            return None
+        capped = min(raw, constraints["max"])
+        minimum = Decimal(str(constraints["min"]))
+        step = Decimal(str(constraints["step"]))
+        value = Decimal(str(capped))
+        steps = ((value - minimum) / step).quantize(
+            Decimal("1"), rounding=ROUND_FLOOR
+        )
+        normalized = minimum + steps * step
+        lots = float(normalized)
+        if lots < constraints["min"]:
+            return None
+        self.validate_volume(symbol, lots)
+        if self.loss_at_stop(symbol, side, lots, entry, stop) > max_risk_cash + 1e-9:
+            return None
+        return lots
+
+    def _timeframe(self, name: str) -> Any:
+        mt5 = self._module()
+        mapping = {
+            "M1": mt5.TIMEFRAME_M1,
+            "M2": mt5.TIMEFRAME_M2,
+            "M3": mt5.TIMEFRAME_M3,
+            "M5": mt5.TIMEFRAME_M5,
+            "M10": mt5.TIMEFRAME_M10,
+            "M15": mt5.TIMEFRAME_M15,
+            "M30": mt5.TIMEFRAME_M30,
+            "H1": mt5.TIMEFRAME_H1,
+            "H2": mt5.TIMEFRAME_H2,
+            "H4": mt5.TIMEFRAME_H4,
+            "D1": mt5.TIMEFRAME_D1,
+        }
+        key = name.strip().upper()
+        if key not in mapping:
+            raise ValueError(f"unsupported MT5 timeframe: {name}")
+        return mapping[key]
+
+    def rates(self, symbol: str, timeframe: str = "M5", count: int = 220) -> list[dict[str, Any]]:
+        self.connect()
+        self._ensure_symbol(symbol)
+        mt5 = self._module()
+        rows = mt5.copy_rates_from_pos(
+            symbol,
+            self._timeframe(timeframe),
+            0,
+            max(2, int(count)),
+        )
+        if rows is None:
+            raise ValueError(f"unable to fetch MT5 rates for {symbol}: {mt5.last_error()}")
+        return [
+            {
+                "time": datetime.fromtimestamp(float(row["time"]), tz=timezone.utc).isoformat(),
+                "open": float(row["open"]),
+                "high": float(row["high"]),
+                "low": float(row["low"]),
+                "close": float(row["close"]),
+                "tick_volume": int(row["tick_volume"]),
+            }
+            for row in rows
+        ]
+
+    def positions(self) -> list[dict[str, Any]]:
+        self.connect()
+        mt5 = self._module()
+        rows = mt5.positions_get() or ()
+        result = []
+        for row in rows:
+            side = Side.BUY if int(row.type) == int(mt5.POSITION_TYPE_BUY) else Side.SELL
+            result.append(
+                {
+                    "ticket": str(row.ticket),
+                    "symbol": str(row.symbol),
+                    "side": side,
+                    "volume": float(row.volume),
+                    "price_open": float(row.price_open),
+                    "sl": float(row.sl),
+                    "tp": float(row.tp),
+                    "profit": float(row.profit),
+                }
+            )
+        return result
+
+    def deals_since(self, hours: int = 72) -> list[dict[str, Any]]:
+        self.connect()
+        mt5 = self._module()
+        end = datetime.now(timezone.utc)
+        start = end - timedelta(hours=max(1, hours))
+        rows = mt5.history_deals_get(start, end) or ()
+        deals = []
+        for row in rows:
+            if int(getattr(row, "magic", 0)) != self.magic:
+                continue
+            side = "buy" if int(row.type) == int(mt5.DEAL_TYPE_BUY) else "sell"
+            if int(row.entry) == int(mt5.DEAL_ENTRY_OUT):
+                entry_type = "out"
+            elif int(row.entry) == int(mt5.DEAL_ENTRY_IN):
+                entry_type = "in"
+            else:
+                entry_type = str(int(row.entry))
+            deals.append(
+                {
+                    "ticket": str(row.ticket),
+                    "position_id": str(row.position_id),
+                    "symbol": str(row.symbol),
+                    "side": side,
+                    "entry_type": entry_type,
+                    "volume": float(row.volume),
+                    "price": float(row.price),
+                    "profit": float(row.profit),
+                    "commission": float(row.commission),
+                    "swap": float(row.swap),
+                    "occurred_at": datetime.fromtimestamp(
+                        float(row.time), tz=timezone.utc
+                    ).isoformat(),
+                }
+            )
+        return deals
 
     def submit(self, order: OrderRequest) -> OrderResult:
         order.validate()
