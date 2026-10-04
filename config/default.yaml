@@ -3,7 +3,6 @@ app:
   log_level: INFO
   allow_live_trading: false
   live_trading_armed: false
-  autonomous_execution_enabled: false
 
 risk:
   profile: micro-capital
@@ -24,11 +23,13 @@ engine:
   min_ai_confidence: 0.66
   require_ai_consensus: true
   min_seconds_between_trades: 900
+  max_proposal_age_seconds: 120
   reflection_enabled: true
 
 execution:
-  mode: live
+  mode: confirmed-live
   broker: mt5
+  confirmation: per-proposal
 
 strategy:
   default: trend-momentum-v1
