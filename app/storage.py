@@ -19,12 +19,11 @@ def _sqlite_path(database_url: str) -> Path:
     prefix = "sqlite:///"
     if not database_url.startswith(prefix):
         raise ValueError("TJ Trading OS currently requires a sqlite:/// database URL")
-    value = database_url[len(prefix):]
-    return Path(value).expanduser().resolve()
+    return Path(database_url[len(prefix):]).expanduser().resolve()
 
 
 class TradingStore:
-    """Small durable state store for risk anchors, journal, events and reflections."""
+    """Durable state for risk anchors, proposals, trades, broker deals and reflections."""
 
     def __init__(self, database_url: str) -> None:
         self.path = _sqlite_path(database_url)
@@ -64,6 +63,23 @@ class TradingStore:
                     symbol TEXT,
                     message TEXT NOT NULL,
                     payload TEXT
+                );
+
+                CREATE TABLE IF NOT EXISTS trade_proposals (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    volume_lots REAL NOT NULL,
+                    reference_entry REAL NOT NULL,
+                    stop_loss REAL NOT NULL,
+                    take_profit REAL NOT NULL,
+                    estimated_risk_cash REAL NOT NULL,
+                    strategy TEXT NOT NULL,
+                    technical_confidence REAL NOT NULL,
+                    ai_confidence REAL NOT NULL,
+                    rationale TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'ready'
                 );
 
                 CREATE TABLE IF NOT EXISTS trade_journal (
@@ -223,9 +239,74 @@ class TradingStore:
     def recent_events(self, limit: int = 100) -> list[dict[str, Any]]:
         with self.connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM engine_events ORDER BY id DESC LIMIT ?", (max(1, limit),)
+                "SELECT * FROM engine_events ORDER BY id DESC LIMIT ?",
+                (max(1, limit),),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def create_proposal(
+        self,
+        *,
+        symbol: str,
+        side: str,
+        volume_lots: float,
+        reference_entry: float,
+        stop_loss: float,
+        take_profit: float,
+        estimated_risk_cash: float,
+        strategy: str,
+        technical_confidence: float,
+        ai_confidence: float,
+        rationale: str,
+    ) -> int:
+        with self.connection() as conn:
+            cursor = conn.execute(
+                """
+                INSERT INTO trade_proposals
+                (created_at, symbol, side, volume_lots, reference_entry,
+                 stop_loss, take_profit, estimated_risk_cash, strategy,
+                 technical_confidence, ai_confidence, rationale, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready')
+                """,
+                (
+                    _utc_now().isoformat(),
+                    symbol,
+                    side,
+                    volume_lots,
+                    reference_entry,
+                    stop_loss,
+                    take_profit,
+                    estimated_risk_cash,
+                    strategy,
+                    technical_confidence,
+                    ai_confidence,
+                    rationale,
+                ),
+            )
+            return int(cursor.lastrowid)
+
+    def proposal(self, proposal_id: int) -> dict[str, Any] | None:
+        with self.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM trade_proposals WHERE id=?",
+                (proposal_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def recent_proposals(self, limit: int = 50) -> list[dict[str, Any]]:
+        with self.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM trade_proposals ORDER BY id DESC LIMIT ?",
+                (max(1, limit),),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def set_proposal_status(self, proposal_id: int, status: str) -> None:
+        with self.connection() as conn:
+            conn.execute(
+                "UPDATE trade_proposals SET status=? WHERE id=?",
+                (status, proposal_id),
+            )
 
     def record_trade(
         self,
@@ -273,7 +354,8 @@ class TradingStore:
     def recent_trades(self, limit: int = 100) -> list[dict[str, Any]]:
         with self.connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM trade_journal ORDER BY id DESC LIMIT ?", (max(1, limit),)
+                "SELECT * FROM trade_journal ORDER BY id DESC LIMIT ?",
+                (max(1, limit),),
             ).fetchall()
         return [dict(row) for row in rows]
 
@@ -287,15 +369,14 @@ class TradingStore:
                 """,
                 (symbol,),
             ).fetchone()
-        if not row:
-            return None
-        return datetime.fromisoformat(str(row["created_at"]))
+        return datetime.fromisoformat(str(row["created_at"])) if row else None
 
     def upsert_deal(self, deal: dict[str, Any]) -> bool:
         ticket = str(deal["ticket"])
         with self.connection() as conn:
             exists = conn.execute(
-                "SELECT 1 FROM broker_deals WHERE ticket=?", (ticket,)
+                "SELECT 1 FROM broker_deals WHERE ticket=?",
+                (ticket,),
             ).fetchone()
             if exists:
                 return False
@@ -324,7 +405,11 @@ class TradingStore:
             return True
 
     def record_reflection(
-        self, deal_ticket: str, symbol: str, pnl: float, reflection: str
+        self,
+        deal_ticket: str,
+        symbol: str,
+        pnl: float,
+        reflection: str,
     ) -> None:
         with self.connection() as conn:
             conn.execute(
@@ -339,7 +424,8 @@ class TradingStore:
     def recent_reflections(self, limit: int = 50) -> list[dict[str, Any]]:
         with self.connection() as conn:
             rows = conn.execute(
-                "SELECT * FROM reflections ORDER BY id DESC LIMIT ?", (max(1, limit),)
+                "SELECT * FROM reflections ORDER BY id DESC LIMIT ?",
+                (max(1, limit),),
             ).fetchall()
         return [dict(row) for row in rows]
 
