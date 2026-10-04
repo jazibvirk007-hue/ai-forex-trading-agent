@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tj-trading-os"
-version = "0.2.0"
-description = "Live-first, risk-gated AI trading OS with MT5, multi-provider AI and Fish Audio voice"
+version = "0.3.0"
+description = "Live MT5 trading workstation with AI analysis, voice, risk gates and confirmed execution"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
@@ -23,6 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 live = ["MetaTrader5==5.0.6231"]
+windows = ["pyinstaller>=6.12,<7"]
 ml = ["lightgbm>=4.5,<5"]
 deep = ["torch>=2.4,<3"]
 db = ["SQLAlchemy>=2.0,<3", "psycopg[binary]>=3.2,<4"]
