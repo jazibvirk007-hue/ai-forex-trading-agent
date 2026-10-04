@@ -46,7 +46,13 @@ class Settings(BaseSettings):
     research_feed_urls: str = ""
     fish_audio_model: str = "s2.1-pro"
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    # Empty optional fields in .env.example should behave as "not configured"
+    # instead of failing type parsing (for example MT5_LOGIN=).
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+        env_ignore_empty=True,
+    )
 
 
 settings = Settings()
