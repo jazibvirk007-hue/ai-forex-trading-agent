@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     broker_name: str = "mt5"
     allow_live_trading: bool = False
     live_trading_armed: bool = False
-    autonomous_execution_enabled: bool = False
 
     mt5_terminal_path: str | None = None
     mt5_login: int | None = None
@@ -37,6 +36,7 @@ class Settings(BaseSettings):
     min_seconds_between_trades: int = 900
     deal_sync_hours: int = 72
     reflection_enabled: bool = True
+    max_proposal_age_seconds: int = 120
 
     ai_provider: str = "openai"
     ai_model: str | None = None
