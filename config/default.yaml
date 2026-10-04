@@ -2,18 +2,21 @@ app:
   environment: development
   log_level: INFO
   allow_live_trading: false
+  live_trading_armed: false
 
 risk:
+  profile: micro-capital
   risk_per_trade: 0.005
   max_daily_loss: 0.02
   max_weekly_loss: 0.05
   max_drawdown: 0.10
-  max_open_positions: 3
-  max_correlated_positions: 2
+  max_open_positions: 1
+  max_correlated_positions: 1
   minimum_reward_risk: 1.5
 
 execution:
-  mode: paper
+  mode: live
+  broker: mt5
   max_slippage_pips: 1.5
   commission_per_unit: 0.0
   default_spread_pips: 1.0
@@ -27,4 +30,4 @@ strategy:
 
 market:
   timeframes: [M1, M5, M15, H1, H4, D1]
-  pairs: [EUR_USD, GBP_USD, USD_JPY]
+  pairs: [EURUSD, GBPUSD, USDJPY]
