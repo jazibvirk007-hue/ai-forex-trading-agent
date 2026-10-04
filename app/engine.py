@@ -2,14 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
 
 from .agents.orchestrator import AgentConsensus, MultiAgentOrchestrator
 from .brokers.mt5 import MT5Broker
 from .config import Settings
-from .domain import OrderRequest, Side
+from .domain import Side
 from .integrations.ai import AIProviderClient
 from .portfolio import CorrelationGuard, Exposure, close_returns
 from .research import RSSResearchProvider
@@ -22,12 +21,8 @@ class EngineNotConfigured(RuntimeError):
     pass
 
 
-class AutonomousTradingEngine:
-    """Single-process autonomous live engine for the local Windows workstation.
-
-    The AI debate may approve or reject a deterministic strategy candidate, but
-    position size and final execution constraints remain in code.
-    """
+class LiveAnalysisEngine:
+    """Continuous live-data analysis engine that creates confirmed trade proposals."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -44,7 +39,11 @@ class AutonomousTradingEngine:
             )
         )
         self.correlation = CorrelationGuard(settings.correlation_threshold)
-        feeds = [item.strip() for item in settings.research_feed_urls.split(",") if item.strip()]
+        feeds = [
+            item.strip()
+            for item in settings.research_feed_urls.split(",")
+            if item.strip()
+        ]
         self.research = RSSResearchProvider(feeds)
         self.ai_client = AIProviderClient()
         self._orchestrator: MultiAgentOrchestrator | None = None
@@ -79,7 +78,11 @@ class AutonomousTradingEngine:
         )
 
     def configure_ai(
-        self, provider: str, model: str, api_key: str, base_url: str | None = None
+        self,
+        provider: str,
+        model: str,
+        api_key: str,
+        base_url: str | None = None,
     ) -> None:
         if not provider.strip() or not model.strip() or not api_key.strip():
             raise EngineNotConfigured("provider, model and API key are required")
@@ -93,7 +96,7 @@ class AutonomousTradingEngine:
         self._ai_provider = provider.strip()
         self._ai_model = model.strip()
         self._ai_base_url = base_url.strip() if base_url else None
-        self.store.event("ai_configured", f"Autonomous AI configured: {provider}/{model}")
+        self.store.event("ai_configured", f"AI analysis configured: {provider}/{model}")
 
     def ai_configured(self) -> bool:
         return self._orchestrator is not None
@@ -106,7 +109,7 @@ class AutonomousTradingEngine:
                 "last_error": self._last_error,
                 "last_cycle": self._last_cycle_summary,
                 "kill_switch": self.store.kill_switch(),
-                "autonomous_execution_enabled": self.settings.autonomous_execution_enabled,
+                "execution_mode": "confirmed-live",
                 "live_enabled": self.settings.allow_live_trading,
                 "live_armed": self.settings.live_trading_armed,
                 "ai_configured": self.ai_configured(),
@@ -132,18 +135,18 @@ class AutonomousTradingEngine:
                 return
             if self.settings.require_ai_consensus and not self.ai_configured():
                 raise EngineNotConfigured(
-                    "configure an AI provider/model before starting the autonomous engine"
+                    "configure an AI provider/model before starting the analysis engine"
                 )
             self._stop.clear()
             self._running = True
             self._last_error = None
             self._thread = threading.Thread(
                 target=self._loop,
-                name="tj-trading-engine",
+                name="tj-live-analysis-engine",
                 daemon=True,
             )
             self._thread.start()
-        self.store.event("engine_started", "Autonomous market engine started")
+        self.store.event("engine_started", "Continuous live analysis started")
 
     def stop(self) -> None:
         self._stop.set()
@@ -152,14 +155,14 @@ class AutonomousTradingEngine:
             thread.join(timeout=2.0)
         with self._state_lock:
             self._running = False
-        self.store.event("engine_stopped", "Autonomous market engine stopped")
+        self.store.event("engine_stopped", "Continuous live analysis stopped")
 
     def emergency_stop(self) -> None:
         self.store.set_kill_switch(True)
         self.stop()
         self.store.event(
             "kill_switch",
-            "Emergency kill switch enabled. No new live orders are permitted.",
+            "Emergency kill switch enabled. Proposal execution is blocked.",
             level="warning",
         )
 
@@ -233,7 +236,8 @@ class AutonomousTradingEngine:
         return result.correlated_positions, result.blockers
 
     async def _consensus(
-        self, candidate: StrategyCandidate
+        self,
+        candidate: StrategyCandidate,
     ) -> tuple[AgentConsensus, int]:
         research = await self.research.fetch(candidate.symbol)
         if self._orchestrator is None:
@@ -259,7 +263,10 @@ class AutonomousTradingEngine:
         return age < self.settings.min_seconds_between_trades
 
     def _process_symbol(
-        self, broker: MT5Broker, status: dict[str, Any], symbol: str
+        self,
+        broker: MT5Broker,
+        status: dict[str, Any],
+        symbol: str,
     ) -> dict[str, Any]:
         market = self._market_series(broker, symbol)
         candidates = self.registry.evaluate(market)
@@ -280,17 +287,16 @@ class AutonomousTradingEngine:
                 symbol=symbol,
                 payload={"confidence": consensus.confidence},
             )
-            return {"symbol": symbol, "result": "ai_skip", "confidence": consensus.confidence}
+            return {
+                "symbol": symbol,
+                "result": "ai_skip",
+                "confidence": consensus.confidence,
+            }
         if consensus.side is not candidate.side:
             self.store.event(
                 "debate_conflict",
                 "AI direction conflicts with deterministic strategy",
                 symbol=symbol,
-                payload={
-                    "strategy_side": candidate.side.value,
-                    "ai_side": consensus.side.value,
-                    "ai_confidence": consensus.confidence,
-                },
             )
             return {"symbol": symbol, "result": "debate_conflict"}
         if consensus.confidence < self.settings.min_ai_confidence:
@@ -301,9 +307,7 @@ class AutonomousTradingEngine:
             )
             return {"symbol": symbol, "result": "low_ai_confidence"}
 
-        correlated, blockers = self._correlated_positions(
-            broker, candidate, market
-        )
+        correlated, blockers = self._correlated_positions(broker, candidate, market)
         account = self.store.account_state(
             equity=float(status["equity"]),
             open_positions=int(status["positions"]),
@@ -340,102 +344,54 @@ class AutonomousTradingEngine:
         if volume is None:
             self.store.event(
                 "minimum_lot_too_large",
-                "Broker minimum volume exceeds the configured cash risk at the stop",
+                "Broker minimum volume exceeds configured cash risk",
                 symbol=symbol,
                 level="warning",
             )
             return {"symbol": symbol, "result": "minimum_lot_too_large"}
 
         estimated_loss = broker.loss_at_stop(
-            symbol, candidate.side, volume, entry, stop
+            symbol,
+            candidate.side,
+            volume,
+            entry,
+            stop,
         )
-        combined_confidence = min(
-            0.99, (candidate.confidence + consensus.confidence) / 2.0
+        proposal_id = self.store.create_proposal(
+            symbol=symbol,
+            side=candidate.side.value,
+            volume_lots=volume,
+            reference_entry=entry,
+            stop_loss=stop,
+            take_profit=target,
+            estimated_risk_cash=estimated_loss,
+            strategy=candidate.strategy,
+            technical_confidence=candidate.confidence,
+            ai_confidence=consensus.confidence,
+            rationale=consensus.rationale,
         )
         proposal = {
+            "id": proposal_id,
             "symbol": symbol,
             "side": candidate.side.value,
             "volume_lots": volume,
-            "entry": entry,
+            "reference_entry": entry,
             "stop_loss": stop,
             "take_profit": target,
-            "estimated_stop_loss_cash": estimated_loss,
+            "estimated_risk_cash": estimated_loss,
             "strategy": candidate.strategy,
             "technical_confidence": candidate.confidence,
             "ai_confidence": consensus.confidence,
             "headline_count": headline_count,
             "rationale": consensus.rationale,
         }
-
-        if self.store.kill_switch():
-            self.store.event(
-                "kill_switch_block",
-                "Kill switch is enabled",
-                symbol=symbol,
-                level="warning",
-                payload=proposal,
-            )
-            return {"symbol": symbol, "result": "kill_switch", "proposal": proposal}
-
-        live_ready = (
-            self.settings.autonomous_execution_enabled
-            and self.settings.allow_live_trading
-            and self.settings.live_trading_armed
-            and self.settings.broker_mode.lower() == "live"
-        )
-        if not live_ready:
-            self.store.event(
-                "live_locked_candidate",
-                "Qualified live candidate found; execution lock remains enabled",
-                symbol=symbol,
-                payload=proposal,
-            )
-            return {"symbol": symbol, "result": "live_locked", "proposal": proposal}
-
-        order = OrderRequest(
-            symbol=symbol,
-            side=candidate.side,
-            units=volume,
-            entry_price=entry,
-            stop_loss=stop,
-            take_profit=target,
-        )
-        result = broker.submit(order)
-        if not result.accepted:
-            self.store.event(
-                "order_rejected",
-                result.message,
-                symbol=symbol,
-                level="error",
-                payload=proposal,
-            )
-            return {"symbol": symbol, "result": "order_rejected", "message": result.message}
-
-        self.store.record_trade(
-            symbol=symbol,
-            side=candidate.side.value,
-            order_id=result.order_id,
-            volume_lots=volume,
-            entry_price=entry,
-            stop_loss=stop,
-            take_profit=target,
-            risk_cash=estimated_loss,
-            strategy=candidate.strategy,
-            confidence=combined_confidence,
-            rationale=consensus.rationale,
-        )
         self.store.event(
-            "live_order_submitted",
-            result.message,
+            "proposal_ready",
+            "Qualified live proposal is ready for explicit confirmation",
             symbol=symbol,
-            payload={**proposal, "order_id": result.order_id},
+            payload=proposal,
         )
-        return {
-            "symbol": symbol,
-            "result": "submitted",
-            "order_id": result.order_id,
-            "proposal": proposal,
-        }
+        return {"symbol": symbol, "result": "proposal_ready", "proposal": proposal}
 
     def _sync_deals(self, broker: MT5Broker) -> int:
         new_count = 0
@@ -472,13 +428,9 @@ class AutonomousTradingEngine:
         started = datetime.now(timezone.utc)
         try:
             if self.store.kill_switch():
-                summary = {"result": "kill_switch", "symbols": []}
-                return summary
+                return {"result": "kill_switch", "symbols": []}
 
             status = broker.status()
-            if not status["trade_allowed"] and self.settings.autonomous_execution_enabled:
-                raise RuntimeError("MT5 terminal reports that trading is not allowed")
-
             self.store.account_state(
                 equity=float(status["equity"]),
                 open_positions=int(status["positions"]),
@@ -498,10 +450,12 @@ class AutonomousTradingEngine:
                         symbol=symbol,
                         level="error",
                     )
-                    outcome = {"symbol": symbol, "result": "error", "error": str(exc)}
+                    outcome = {
+                        "symbol": symbol,
+                        "result": "error",
+                        "error": str(exc),
+                    }
                 outcomes.append(outcome)
-                if outcome.get("result") == "submitted":
-                    status = broker.status()
 
             summary = {
                 "result": "completed",
@@ -510,7 +464,11 @@ class AutonomousTradingEngine:
                 "new_deals_synced": new_deals,
                 "symbols": outcomes,
             }
-            self.store.event("cycle_complete", "Autonomous scan cycle completed", payload=summary)
+            self.store.event(
+                "cycle_complete",
+                "Continuous live scan cycle completed",
+                payload=summary,
+            )
             with self._state_lock:
                 self._last_cycle_at = summary["finished_at"]
                 self._last_cycle_summary = summary
