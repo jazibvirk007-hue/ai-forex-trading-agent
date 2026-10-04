@@ -32,13 +32,20 @@ class RiskEngine:
     def __init__(self, limits: RiskLimits | None = None) -> None:
         self.limits = limits or RiskLimits()
 
-    def position_units(self, equity: float, stop_distance_price: float, value_per_price_unit: float) -> float:
+    def position_units(
+        self,
+        equity: float,
+        stop_distance_price: float,
+        value_per_price_unit: float,
+    ) -> float:
         if equity <= 0 or stop_distance_price <= 0 or value_per_price_unit <= 0:
-            raise ValueError("equity, stop distance and value per price unit must be positive")
+            raise ValueError(
+                "equity, stop distance and value per price unit must be positive"
+            )
         risk_cash = equity * self.limits.risk_per_trade
         return risk_cash / (stop_distance_price * value_per_price_unit)
 
-    def check(self, account: AccountState, stop_distance_price: float, value_per_price_unit: float) -> RiskDecision:
+    def account_limits(self, account: AccountState) -> RiskDecision:
         if account.equity <= 0:
             return RiskDecision(False, "non-positive equity")
         if account.open_positions >= self.limits.max_open_positions:
@@ -55,6 +62,18 @@ class RiskEngine:
             return RiskDecision(False, "weekly loss limit reached")
         if drawdown >= self.limits.max_drawdown:
             return RiskDecision(False, "maximum drawdown reached; trading halted")
+        return RiskDecision(True, "approved")
 
-        units = self.position_units(account.equity, stop_distance_price, value_per_price_unit)
+    def check(
+        self,
+        account: AccountState,
+        stop_distance_price: float,
+        value_per_price_unit: float,
+    ) -> RiskDecision:
+        limits = self.account_limits(account)
+        if not limits.approved:
+            return limits
+        units = self.position_units(
+            account.equity, stop_distance_price, value_per_price_unit
+        )
         return RiskDecision(True, "approved", units)

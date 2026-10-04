@@ -4,6 +4,16 @@ __pycache__/
 .venv/
 .env
 
+# Runtime state
+*.db
+*.db-shm
+*.db-wal
+
+# Build output
+build/
+dist/
+*.egg-info/
+
 # Local research data
 data/raw/
 data/processed/

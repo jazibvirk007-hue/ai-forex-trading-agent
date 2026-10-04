@@ -2,29 +2,41 @@ app:
   environment: development
   log_level: INFO
   allow_live_trading: false
+  live_trading_armed: false
 
 risk:
+  profile: micro-capital
   risk_per_trade: 0.005
   max_daily_loss: 0.02
   max_weekly_loss: 0.05
   max_drawdown: 0.10
-  max_open_positions: 3
-  max_correlated_positions: 2
-  minimum_reward_risk: 1.5
+  max_open_positions: 1
+  max_correlated_positions: 1
+  correlation_threshold: 0.80
+
+engine:
+  auto_start: false
+  cycle_seconds: 30
+  symbols: [EURUSD, GBPUSD, USDJPY]
+  timeframe: M5
+  bars: 220
+  min_ai_confidence: 0.66
+  require_ai_consensus: true
+  min_seconds_between_trades: 900
+  max_proposal_age_seconds: 120
+  reflection_enabled: true
 
 execution:
-  mode: paper
-  max_slippage_pips: 1.5
-  commission_per_unit: 0.0
-  default_spread_pips: 1.0
+  mode: confirmed-live
+  broker: mt5
+  confirmation: per-proposal
 
 strategy:
-  min_confidence: 0.60
-  min_edge_after_costs: 0.0
-  time_stop_bars: 20
-  atr_stop_multiple: 1.5
-  atr_target_multiple: 2.25
+  default: trend-momentum-v1
 
-market:
-  timeframes: [M1, M5, M15, H1, H4, D1]
-  pairs: [EUR_USD, GBP_USD, USD_JPY]
+research:
+  feed_urls: []
+
+voice:
+  provider: fish_audio
+  model: s2.1-pro
