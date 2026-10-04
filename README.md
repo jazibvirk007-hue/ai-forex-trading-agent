@@ -1,54 +1,191 @@
 # TJ Trading OS
 
-A live-first AI trading workstation built around **real MetaTrader 5 execution**, micro-capital risk gates, dynamic AI providers, Fish Audio voice conversation, and a floating trading copilot.
+TJ Trading OS is a **real-time MetaTrader 5 trading workstation** for small accounts. It combines live MT5 market data, deterministic micro-capital risk controls, parallel AI analysis, configurable research feeds, Fish Audio voice conversation, persistent trade memory, and Windows packaging.
 
-> **Important:** Live-capable does not mean guaranteed profitable. The software can route real orders when explicitly armed, but no model, strategy, or AI provider can guarantee returns.
+> **Important:** Live-capable does not mean guaranteed profitable. The system can send real MT5 orders only after an explicit user confirmation for the exact proposal being executed.
 
-## Current live foundation
+## What is implemented
 
-- MetaTrader 5 live account connection
-- Real bid/ask quote retrieval
-- Broker minimum/maximum/step volume validation
-- Pre-flight `order_check()` before `order_send()`
-- Hard stop-loss and take-profit requirement
-- Stop-loss cash-risk calculation against current account equity
-- Micro-capital default: **0.5% risk per trade**
-- Micro-capital default: **1 open position**
-- Two environment arm flags plus `X-Live-Confirm: LIVE` required for execution
-- Dynamic AI provider list with **Fetch Models**
-- OpenAI, xAI/Grok, OpenRouter, Groq, DeepSeek, Mistral, Anthropic, Gemini, and custom OpenAI-compatible endpoints
-- Fish Audio **Fetch Audio** voice-model loading
-- Fish Audio TTS and ASR
-- Floating AI chat window
-- Microphone voice conversation
-- Round pulse orb for listening, thinking, and speaking states
+### Live MT5 layer
 
-## Architecture
+- Connect to a logged-in MetaTrader 5 terminal
+- Read live account balance, equity, margin, positions and trading permission
+- Read real bid/ask quotes
+- Pull live MT5 candles for strategy analysis
+- Read broker lot minimum, maximum and lot step
+- Calculate cash loss at the proposed stop using MT5's own profit calculator
+- Calculate a broker-valid lot size that stays below the configured cash-risk limit
+- Run `order_check()` before `order_send()`
+- Sync MT5 deal history for the journal/reflection layer
 
-```text
-Live MT5 data ───────────────┐
-                             │
-AI provider + research ──────┼──> TJ Copilot / strategy layer
-                             │
-Fish ASR <── microphone      │
-Fish TTS ──> spoken reply    │
-                             ▼
-                    deterministic risk gate
-                             │
-                 broker volume validation
-                             │
-                    MT5 order_check()
-                             │
-                      explicit live arm
-                             │
-                      MT5 order_send()
+### Micro-capital risk core
+
+Default profile:
+
+```env
+RISK_PER_TRADE=0.005
+MAX_DAILY_LOSS=0.02
+MAX_WEEKLY_LOSS=0.05
+MAX_DRAWDOWN=0.10
+MAX_OPEN_POSITIONS=1
+MAX_CORRELATED_POSITIONS=1
+CORRELATION_THRESHOLD=0.80
 ```
 
-The AI layer is intentionally separated from the final execution gate. A model cannot bypass the configured broker/risk checks.
+The OS maintains durable start-of-day, start-of-week and peak-equity anchors in SQLite. Restarting the app does not reset those anchors.
 
-## Windows live installation
+If the broker's minimum lot already exceeds the allowed cash risk at the stop, the proposal is rejected rather than rounded upward.
 
-MetaTrader 5's official Python package is Windows-only. Install Python 3.11+ and MetaTrader 5 first.
+### Continuous live analysis
+
+The live analysis engine can run every few seconds/minutes without creating paper fills.
+
+Pipeline:
+
+```text
+Live MT5 quotes + candles
+        ↓
+Strategy registry
+        ↓
+Trend / momentum / ATR candidate
+        ↓
+Configured RSS/Atom research feeds
+        ↓
+Parallel AI analysts
+  ├─ Technical skeptic
+  ├─ Macro/news analyst
+  ├─ Bull advocate
+  └─ Bear advocate
+        ↓
+Conservative AI judge
+        ↓
+Portfolio-correlation gate
+        ↓
+Durable daily/weekly/drawdown gate
+        ↓
+Broker-valid micro lot sizing
+        ↓
+LIVE TRADE PROPOSAL
+        ↓
+Explicit user confirmation
+        ↓
+Current-price + current-risk revalidation
+        ↓
+MT5 order_check()
+        ↓
+MT5 order_send()
+```
+
+The AI cannot call `order_send()` by itself. It can only create a proposal.
+
+### Per-proposal live confirmation
+
+Qualified proposals receive durable IDs.
+
+Example:
+
+```text
+Proposal #184
+EURUSD BUY
+Volume       0.01
+Stop         1.10120
+Target       1.10880
+Risk cash    $0.48
+AI confidence 78%
+```
+
+Before execution, TJ Trading OS re-checks:
+
+- proposal status and age
+- current market-price drift
+- emergency kill switch
+- MT5 trading permission
+- current open-position count
+- broker lot constraints
+- current equity
+- cash loss at the stop
+- configured risk-per-trade limit
+
+A proposal-specific live request requires a confirmation value matching that exact proposal ID.
+
+### AI providers — Fetch Models
+
+The UI supports:
+
+- OpenAI
+- xAI / Grok
+- Anthropic
+- Google Gemini
+- OpenRouter
+- Groq
+- DeepSeek
+- Mistral
+- custom OpenAI-compatible endpoints
+
+Workflow:
+
+1. Choose provider.
+2. Enter API key.
+3. Select **Fetch Models**.
+4. Pick a model returned by that provider.
+5. Select **Use Selected Model for Engine**.
+
+The selected credentials can be kept only in process memory. They do not need to be written into project files.
+
+### Fish Audio voice conversation
+
+Implemented:
+
+- **Fetch Audio** / voice discovery
+- Fish Audio ASR
+- Fish Audio TTS
+- microphone conversation
+- floating AI chat
+- animated round voice pulse
+
+Voice states:
+
+```text
+Listening → Thinking → Speaking
+```
+
+### Journal and reflection
+
+SQLite persists:
+
+- risk anchors
+- engine decision events
+- live proposals
+- submitted orders
+- broker deal history
+- AI post-trade reflections
+
+The reflection agent runs on newly synced closing deals and focuses on process quality and risk discipline rather than revenge-trading or risk escalation.
+
+### Windows executable
+
+The repository includes:
+
+- `run_tj.py`
+- `tj_trading_os.spec`
+- `scripts/build_windows.ps1`
+- `.github/workflows/windows-build.yml`
+
+The Windows workflow runs tests/lint and builds:
+
+```text
+dist\TJ-Trading-OS.exe
+```
+
+## Windows installation from source
+
+Install:
+
+- Windows
+- Python 3.11+
+- MetaTrader 5 desktop terminal
+
+Then:
 
 ```powershell
 git clone https://github.com/jazibvirk007-hue/ai-forex-trading-agent.git
@@ -64,13 +201,13 @@ Copy-Item .env.example .env
 uvicorn app.api:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000`.
+Open:
 
-## MT5 connection
+```text
+http://127.0.0.1:8000
+```
 
-If the local MetaTrader 5 terminal is already signed in, the Python integration can normally attach to it without storing the account password in this project.
-
-Optional environment values:
+If MT5 is already logged in, the integration can attach to the local terminal. Optional settings:
 
 ```env
 MT5_TERMINAL_PATH=
@@ -79,75 +216,62 @@ MT5_PASSWORD=
 MT5_SERVER=
 ```
 
-Do not commit a populated `.env` file.
+Never commit a populated `.env`.
 
-## Enabling real order execution
+## Enable real execution
 
-The application starts live-ready but **execution locked**. After verifying the connected MT5 account and risk configuration, the local environment must explicitly contain:
+Real execution remains locked unless both values are explicitly enabled locally:
 
 ```env
-BROKER_MODE=live
-BROKER_NAME=mt5
 ALLOW_LIVE_TRADING=true
 LIVE_TRADING_ARMED=true
 ```
 
-The order endpoint additionally requires:
+The continuous scanner still does not execute automatically. A proposal must be confirmed individually from the UI or API.
 
-```http
-X-Live-Confirm: LIVE
-```
-
-This prevents an AI/chat request or accidental HTTP call from silently arming the account.
-
-## Micro-capital profile
-
-Default limits:
+## Continuous engine configuration
 
 ```env
-RISK_PER_TRADE=0.005
-MAX_DAILY_LOSS=0.02
-MAX_WEEKLY_LOSS=0.05
-MAX_DRAWDOWN=0.10
-MAX_OPEN_POSITIONS=1
-MAX_CORRELATED_POSITIONS=1
+ENGINE_AUTO_START=false
+ENGINE_CYCLE_SECONDS=30
+ENGINE_SYMBOLS=EURUSD,GBPUSD,USDJPY
+ENGINE_TIMEFRAME=M5
+ENGINE_BARS=220
+MIN_AI_CONFIDENCE=0.66
+REQUIRE_AI_CONSENSUS=true
+MIN_SECONDS_BETWEEN_TRADES=900
+MAX_PROPOSAL_AGE_SECONDS=120
+REFLECTION_ENABLED=true
 ```
 
-Before a live order is accepted, TJ Trading OS calculates the approximate loss at the supplied stop using MT5's own profit calculator. If that loss exceeds the configured percentage of current equity, the order is rejected.
+Add comma-separated RSS or Atom feeds for the news/research agent:
 
-If the broker's minimum lot size is already too large for the account's risk allowance, the system rejects the order instead of rounding the volume upward.
-
-## AI Providers — Fetch Models
-
-In the dashboard:
-
-1. Choose the provider.
-2. Enter its API key.
-3. For a custom OpenAI-compatible endpoint, enter the base URL.
-4. Select **Fetch Models**.
-5. Choose a returned model.
-
-API keys entered in the dashboard are sent to the local backend for the requested call and are not written to project files by the UI.
-
-## Fish Audio — Fetch Audio
-
-1. Enter the Fish Audio API key.
-2. Select **Fetch Audio** to retrieve available voice models.
-3. Choose a voice and speech model.
-4. Open the floating chat.
-5. Tap the round voice button to start speaking and tap again to stop.
-
-The pulse orb appears while listening, changes state while the AI is thinking, and remains visible while Fish Audio speaks the response.
-
-Fish Audio integration uses the production `/model`, `/v1/tts`, and `/v1/asr` APIs.
+```env
+RESEARCH_FEED_URLS=https://example.com/feed.xml,https://example.com/markets.xml
+```
 
 ## API highlights
 
 ```text
 GET  /health
+
 GET  /ai/providers
 POST /ai/models/fetch
 POST /ai/chat
+
+POST /engine/ai/configure
+GET  /engine/status
+POST /engine/start
+POST /engine/stop
+POST /engine/run-once
+POST /engine/emergency-stop
+POST /engine/resume
+GET  /engine/events
+GET  /engine/proposals
+POST /engine/proposals/{id}/execute
+
+GET  /journal/trades
+GET  /journal/reflections
 
 POST /voice/fish/models/fetch
 POST /voice/fish/asr
@@ -158,12 +282,25 @@ GET  /broker/mt5/symbol/{symbol}
 POST /broker/mt5/order
 ```
 
+## Build the Windows EXE
+
+```powershell
+.\scripts\build_windows.ps1
+```
+
+Output:
+
+```text
+dist\TJ-Trading-OS.exe
+```
+
 ## Tests
 
 ```bash
 pip install -e ".[dev]"
-pytest
+ruff check . --fix
 ruff check .
+pytest -q
 ```
 
-The Linux CI deliberately does not install the Windows-only MT5 wheel; the MT5 adapter imports it lazily so the rest of the system remains testable on CI.
+Linux CI does not install the Windows-only MetaTrader5 wheel. The MT5 adapter imports it lazily, allowing analysis, storage, strategy, provider and API components to remain testable on Linux.
